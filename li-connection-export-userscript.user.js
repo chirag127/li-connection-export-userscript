@@ -26,9 +26,9 @@
   const PAGE = 40;
   const MAX = 4000;
 
+  /** LinkedIn wants the raw JSESSIONID value, `ajax:` prefix included. */
   function csrf() {
-    const raw = (document.cookie.match(/JSESSIONID="?([^";]+)"?/) || [])[1] || "";
-    return raw.replace(/^ajax:/, "");
+    return (document.cookie.match(/JSESSIONID="?([^";]+)"?/) || [])[1] || "";
   }
 
   function headers() {
@@ -45,19 +45,21 @@
   let ui = null;
 
   async function page(start) {
-    const url = "/voyager/api/relationships/connections?count=" + PAGE + "&start=" + start + "&includeInsights=true";
+    const url = "/voyager/api/relationships/connections?count=" + PAGE + "&start=" + start;
     const r = await fetch(url, { credentials: "include", headers: headers() });
     if (!r.ok) throw new Error("HTTP " + r.status);
     const j = await r.json();
-    const els = (j.data && j.data.elements) || j.elements || [];
+    // normalized+json: the list is `data["*elements"]` (URNs), the profiles ride in `included`
+    const refs = (j.data && (j.data["*elements"] || j.data.elements)) || [];
+    const byUrn = new Map((j.included || []).map((i) => [i.entityUrn, i]));
     const out = [];
-    for (const e of els) {
-      const p = e.miniProfile || e;
+    for (const ref of refs) {
+      const p = typeof ref === "string" ? byUrn.get(ref) : ref;
       if (!p) continue;
-      const id = p.entityUrn || p.publicIdentifier || p.firstName + p.lastName;
+      const id = p.entityUrn || p.publicIdentifier || (p.firstName || "") + (p.lastName || "");
       const name = [p.firstName, p.lastName].filter(Boolean).join(" ") || p.name || "";
-      const url = p.publicIdentifier ? "https://www.linkedin.com/in/" + p.publicIdentifier : "";
-      out.push({ id, name, headline: p.occupation || p.headline || "", url });
+      const profile = p.publicIdentifier ? "https://www.linkedin.com/in/" + p.publicIdentifier : "";
+      out.push({ id, name, headline: p.occupation || p.headline || "", url: profile });
     }
     return out;
   }
